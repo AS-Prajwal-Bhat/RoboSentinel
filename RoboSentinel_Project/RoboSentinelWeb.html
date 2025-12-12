@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ESP32 RC Dashboard - Fixed Sensors</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f6f7f9;--panel:#ffffff;--muted:#6b7280;--accent:#007aff;
+    --accent-2:#00c2a8;--danger:#ff3b30;--glass-shadow:0 8px 30px rgba(15,23,42,0.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+  body{
+    background:linear-gradient(180deg,#f6f7f9 0%, #eef3f8 100%);
+    color:#0f172a;display:flex;align-items:flex-start;justify-content:center;padding:18px;
+  }
+  .container{width:100%;max-width:1100px;display:grid;gap:16px;
+    grid-template-columns:1fr 380px;align-items:start;}
+  @media (max-width:880px){.container{grid-template-columns:1fr;padding-bottom:80px}
+    .right-col{order:2}.left-col{order:1}}
+  header.app-header{
+    grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;
+    flex-wrap:wrap;
+  }
+  .title h1{margin:0;font-weight:600;letter-spacing:-0.2px;font-size:1.15rem;}
+  .title p{margin:4px 0 0;color:var(--muted);font-size:0.82rem;}
+
+  .panel{
+    background:var(--panel);border-radius:var(--radius);box-shadow:var(--glass-shadow);
+    padding:16px;border:1px solid rgba(9,10,13,0.04);
+  }
+
+  .video-card{display:flex;flex-direction:column;gap:12px;min-height:260px;}
+  .video-frame{
+    position:relative;border-radius:12px;overflow:hidden;background:#000;
+    aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;
+  }
+  #videoStream{width:100%;height:100%;object-fit:cover;}
+  .video-overlay{
+    position:absolute;top:12px;left:12px;display:flex;gap:10px;align-items:center;
+    background:rgba(255,255,255,0.06);padding:6px 10px;border-radius:999px;
+    backdrop-filter:blur(6px);color:#fff;font-weight:600;font-size:0.82rem;
+  }
+  .status-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);}  
+  .ctrl-btn{
+    border:none;border-radius:12px;font-size:1.5rem;font-weight:600;background:#f8fafc;
+    cursor:pointer;transition:all .12s ease;box-shadow:0 6px 16px rgba(9,10,13,0.06);color:#0b1220;
+    user-select:none;-webkit-user-select:none;
+  }
+  .ctrl-btn:active{transform:translateY(1px) scale(.99);background:#e8ecf2;}
+  .ctrl-stop{background:linear-gradient(180deg,#fff0f0,#ffecec);color:var(--danger);}
+  .ctrl-stop:active{background:linear-gradient(180deg,#ffe5e5,#ffd5d5);}
+  .btn-grid{
+    display:grid;grid-template-columns:repeat(3,80px);grid-template-rows:repeat(3,64px);
+    gap:8px;justify-content:center;margin-bottom:12px;
+  }
+  .speed-box{display:flex;align-items:center;gap:10px;
+    padding:8px 10px;background:linear-gradient(180deg,#ffffff,#f8fbfd);
+    border-radius:10px;}
+  .speed-number{min-width:44px;text-align:center;font-weight:600;font-size:1rem;color:var(--accent);}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:6px;
+    background:linear-gradient(90deg,var(--accent),var(--accent-2));
+    border-radius:999px;outline:none;width:160px;}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+    background:#fff;border:4px solid rgba(0,0,0,0.06);
+    box-shadow:0 2px 8px rgba(15,23,42,0.08);cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:18px;height:18px;border-radius:50%;
+    background:#fff;border:4px solid rgba(0,0,0,0.06);
+    box-shadow:0 2px 8px rgba(15,23,42,0.08);cursor:pointer;
+  }
+
+  .sensors-grid{display:grid;gap:10px;}
+  .sensor{padding:14px;border-radius:12px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+    border:1px solid rgba(9,10,13,0.03);color:#fff;text-align:center;}
+  .sensor-label{font-size:0.75rem;opacity:0.9;margin-bottom:6px;font-weight:500;}
+  .sensor-value{font-size:1.6rem;font-weight:700;margin-bottom:2px;}
+  .sensor-unit{font-size:0.85rem;opacity:0.85;}
+  
+  .air-quality-badge{
+    margin-top:12px;padding:10px;border-radius:10px;text-align:center;
+    font-weight:600;font-size:0.9rem;
+  }
+  .air-good{background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#065f46;}
+  .air-moderate{background:linear-gradient(135deg,#fef3c7,#fde68a);color:#92400e;}
+  .air-poor{background:linear-gradient(135deg,#fee2e2,#fecaca);color:#991b1b;}
+  
+  .emergency{position:fixed;right:18px;bottom:18px;width:62px;height:62px;
+    border-radius:50%;background:var(--danger);color:#fff;font-size:1.25rem;
+    border:none;box-shadow:0 12px 30px rgba(255,59,48,0.18);cursor:pointer;
+    user-select:none;-webkit-user-select:none;}
+  .emergency:active{transform:scale(0.95);}  
+  
+  .config-section{margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;}
+  .ip-input{width:100%;padding:8px;border-radius:8px;border:1px solid #d1d5db;
+    font-size:0.9rem;margin-top:6px;}
+  .small-btn{padding:6px 12px;border-radius:6px;border:none;background:var(--accent);
+    color:white;cursor:pointer;font-size:0.85rem;margin-top:8px;}
+  .small-btn:active{opacity:0.8;}
+  
+  .debug-log{
+    margin-top:12px;padding:10px;background:#f9fafb;border-radius:8px;
+    font-size:0.75rem;font-family:monospace;max-height:120px;overflow-y:auto;
+    border:1px solid #e5e7eb;color:#374151;
+  }
+
+  /* ============================
+     Face Detection extra styles
+     ============================ */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.9; transform: scale(1.02); }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header class="app-header">
+    <div class="title">
+      <h1>🚗 ESP32 RC Command Center</h1>
+      <p>Real-time Motor Control & Environmental Monitoring</p>
+    </div>
+    <div style="font-size:0.85rem;color:var(--muted);">
+      Control: <b id="controlState">CONNECTING</b> | Sensors: <b id="sensorState">—</b>
+    </div>
+  </header>
+
+  <div class="left-col">
+    <section class="panel video-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:600">📹 Live Camera Stream</div>
+        <div style="font-size:0.8rem;color:var(--muted);" id="timeNow">--:--:--</div>
+      </div>
+      <div class="video-frame">
+        <img id="videoStream" alt="Live camera" style="display:none;" />
+        <div style="color:#fff;text-align:center;" id="videoPlaceholder">
+          <div style="font-size:3rem;margin-bottom:8px;">📹</div>
+          <div style="font-size:0.9rem;">Camera Not Connected</div>
+          <div style="font-size:0.75rem;color:#aaa;margin-top:4px;">Enter ESP32-CAM IP below</div>
+        </div>
+        <div class="video-overlay">
+          <div class="status-dot" id="vDot" style="background:#ccc;"></div>
+          <div id="vText">OFFLINE</div>
+        </div>
+      </div>
+      
+      <div class="config-section">
+        <div style="font-size:0.85rem;font-weight:600;margin-bottom:4px;">ESP32-CAM IP Address</div>
+        <input type="text" class="ip-input" id="camIP" placeholder="e.g., 192.168.1.100" />
+        <button class="small-btn" onclick="connectCamera()">🔗 Connect Camera</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="font-weight:600;">🎮 Vehicle Controls</div>
+        <div class="speed-box">
+          <div style="font-size:0.82rem;color:var(--muted);">Speed</div>
+          <div class="speed-number" id="speedVal">50</div>
+        </div>
+      </div>
+
+      <div class="btn-grid">
+        <div></div><button class="ctrl-btn" id="btnF">↑</button><div></div>
+        <button class="ctrl-btn" id="btnL">←</button>
+        <button class="ctrl-btn ctrl-stop" id="btnStop">⏹</button>
+        <button class="ctrl-btn" id="btnR">→</button>
+        <div></div><button class="ctrl-btn" id="btnB">↓</button><div></div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+        <input id="speedSlider" type="range" min="0" max="100" value="50" />
+      </div>
+      
+      <div class="config-section">
+        <div style="font-size:0.85rem;font-weight:600;margin-bottom:4px;">ESP32 Control Board IP</div>
+        <input type="text" class="ip-input" id="ctrlIP" placeholder="e.g., 192.168.1.101" />
+        <button class="small-btn" onclick="updateControlIP()">🔗 Update IP</button>
+        <button class="small-btn" style="margin-left:8px;" onclick="testSensorAPI()">🧪 Test API</button>
+      </div>
+      
+      <div class="debug-log" id="debugLog">💡 Debug logs will appear here. Click "Test API" to check connection.</div>
+    </section>
+  </div>
+
+  <aside class="right-col">
+    <!-- Environmental Sensors -->
+    <section class="panel">
+      <div style="font-weight:600;margin-bottom:12px;">📊 Environmental Sensors</div>
+      <div class="sensors-grid">
+        <div class="sensor">
+          <div class="sensor-label">🌡️ TEMPERATURE</div>
+          <div class="sensor-value" id="temperature">--</div>
+          <div class="sensor-unit">°C</div>
+        </div>
+        <div class="sensor">
+          <div class="sensor-label">💧 HUMIDITY</div>
+          <div class="sensor-value" id="humidity">--</div>
+          <div class="sensor-unit">%</div>
+        </div>
+        <div class="sensor">
+          <div class="sensor-label">💨 GAS LEVEL (CO₂)</div>
+          <div class="sensor-value" id="gas">--</div>
+          <div class="sensor-unit">ppm</div>
+        </div>
+      </div>
+      
+      <div class="air-quality-badge air-good" id="airQualityBadge">
+        ✅ Air Quality: Waiting for data...
+      </div>
+    </section>
+
+    <!-- FACE DETECTION PANEL -->
+    <section class="panel" style="margin-top:16px;">
+      <div style="font-weight:600;margin-bottom:12px;">👁️ Face Detection System</div>
+      
+      <div id="faceStatus" style="padding:14px;border-radius:10px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;text-align:center;font-weight:600;font-size:1.1rem;">
+        CONNECTING...
+      </div>
+      
+      <div id="faceAlert" style="display:none;margin-top:12px;padding:14px;border-radius:10px;background:linear-gradient(135deg,#ff3b30,#ff6b6b);color:white;text-align:center;font-weight:700;font-size:1.2rem;animation:pulse 1s infinite;">
+        ⚠️ UNKNOWN FACE DETECTED
+      </div>
+      
+      <div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:8px;display:flex;justify-content:space-between;">
+        <div style="font-size:0.85rem;color:#6b7280;">Known Faces:</div>
+        <div style="font-weight:600;color:#007aff;" id="knownCount">0</div>
+      </div>
+      
+      <div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:8px;font-size:0.8rem;color:#374151;" id="lastDetection">
+        Last detection: waiting...
+      </div>
+    </section>
+    <!-- END FACE DETECTION PANEL -->
+    
+    <!-- Connection Info -->
+    <section class="panel" style="margin-top:16px;">
+      <div style="font-weight:600;margin-bottom:10px;">ℹ️ Connection Info</div>
+      <div style="font-size:0.85rem;color:var(--muted);line-height:1.6;">
+        <div><b>Control Board:</b> <span id="displayCtrlIP">Not configured</span></div>
+        <div style="margin-top:6px;"><b>Camera Module:</b> <span id="displayCamIP">Not configured</span></div>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<button class="emergency" id="emergency" title="Emergency Stop All Motors">⛔</button>
+
+<script>
+/* ============================================
+   ESP32 RC DASHBOARD - FIXED VERSION
+   ============================================ */
+
+// DEFAULT IPs - CHANGE THESE!
+let ESP32_CTRL = "http://10.203.25.190";
+let ESP32_CAM  = "http://10.203.25.254";
+
+// Load saved IPs
+try {
+  const savedCtrl = localStorage.getItem('esp32_ctrl_ip');
+  const savedCam = localStorage.getItem('esp32_cam_ip');
+  if (savedCtrl) ESP32_CTRL = savedCtrl;
+  if (savedCam) ESP32_CAM = savedCam;
+} catch (e) {
+  console.warn('localStorage not available');
+}
+
+// Update UI
+document.getElementById('displayCtrlIP').textContent = ESP32_CTRL;
+document.getElementById('ctrlIP').value = ESP32_CTRL.replace('http://', '');
+document.getElementById('displayCamIP').textContent = ESP32_CAM;
+document.getElementById('camIP').value = ESP32_CAM.replace('http://', '');
+
+/* Element References */
+const vImg = document.getElementById('videoStream');
+const vDot = document.getElementById('vDot');
+const vText = document.getElementById('vText');
+const videoPlaceholder = document.getElementById('videoPlaceholder');
+const controlState = document.getElementById('controlState');
+const sensorState = document.getElementById('sensorState');
+const btnF = document.getElementById('btnF');
+const btnB = document.getElementById('btnB');
+const btnL = document.getElementById('btnL');
+const btnR = document.getElementById('btnR');
+const btnStop = document.getElementById('btnStop');
+const speedSlider = document.getElementById('speedSlider');
+const speedVal = document.getElementById('speedVal');
+const temperatureEl = document.getElementById('temperature');
+const humidityEl = document.getElementById('humidity');
+const gasEl = document.getElementById('gas');
+const airQualityBadge = document.getElementById('airQualityBadge');
+
+let speed = 50;
+let holdInterval = null;
+let isControlOnline = false;
+let sensorFetchInterval = null;
+
+/* ============================================
+   DEBUG LOGGING
+   ============================================ */
+function addDebug(msg) {
+  const log = document.getElementById('debugLog');
+  const time = new Date().toLocaleTimeString();
+  log.innerHTML = `<div>[${time}] ${msg}</div>` + log.innerHTML;
+}
+
+/* ============================================
+   VIDEO STREAMING
+   ============================================ */
+function startVideo() {
+  if (!ESP32_CAM) return;
+  
+  const streamUrl = `${ESP32_CAM}:81/stream`;
+  vImg.src = streamUrl;
+  vImg.style.display = 'block';
+  videoPlaceholder.style.display = 'none';
+  addDebug(`📹 Connecting to: ${streamUrl}`);
+}
+
+function connectCamera() {
+  const ip = document.getElementById('camIP').value.trim();
+  if (!ip) {
+    alert('⚠️ Please enter ESP32-CAM IP address');
+    return;
+  }
+  ESP32_CAM = ip.startsWith('http') ? ip : `http://${ip}`;
+  
+  try {
+    localStorage.setItem('esp32_cam_ip', ESP32_CAM);
+  } catch (e) {}
+  
+  document.getElementById('displayCamIP').textContent = ESP32_CAM;
+  addDebug(`✅ Camera IP updated to: ${ESP32_CAM}`);
+  startVideo();
+}
+
+function updateControlIP() {
+  const ip = document.getElementById('ctrlIP').value.trim();
+  if (!ip) {
+    alert('⚠️ Please enter ESP32 Control IP address');
+    return;
+  }
+  ESP32_CTRL = ip.startsWith('http') ? ip : `http://${ip}`;
+  
+  try {
+    localStorage.setItem('esp32_ctrl_ip', ESP32_CTRL);
+  } catch (e) {}
+  
+  document.getElementById('displayCtrlIP').textContent = ESP32_CTRL;
+  controlState.textContent = 'RECONNECTING...';
+  addDebug(`✅ Control IP updated to: ${ESP32_CTRL}`);
+  
+  // Restart sensor polling
+  if (sensorFetchInterval) clearInterval(sensorFetchInterval);
+  sensorFetchInterval = setInterval(fetchSensors, 2000);
+  
+  setTimeout(() => {
+    testConnection();
+    fetchSensors();
+  }, 500);
+}
+
+vImg.addEventListener('load', () => {
+  vDot.style.background = 'var(--accent)';
+  vText.textContent = 'LIVE';
+  addDebug('✅ Camera stream connected');
+});
+
+vImg.addEventListener('error', () => {
+  vDot.style.background = '#ccc';
+  vText.textContent = 'OFFLINE';
+  vImg.style.display = 'none';
+  videoPlaceholder.style.display = 'block';
+  addDebug('❌ Camera connection failed');
+});
+
+if (ESP32_CAM && ESP32_CAM !== 'http://192.168.1.100') {
+  startVideo();
+}
+
+/* ============================================
+   CLOCK UPDATE
+   ============================================ */
+setInterval(() => {
+  document.getElementById('timeNow').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+/* ============================================
+   SENSOR DATA FETCHING
+   ============================================ */
+async function fetchSensors() {
+  if (!ESP32_CTRL) {
+    addDebug('⚠️ ESP32 Control IP not set');
+    return;
+  }
+  
+  try {
+    const url = `${ESP32_CTRL}/sensors`;
+    addDebug(`📡 Fetching: ${url}`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const res = await fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-cache',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      addDebug(`⚠️ Warning: Response is not JSON (${contentType})`);
+    }
+    
+    const text = await res.text();
+    addDebug(`📥 Response: ${text}`);
+    
+    if (!text || text.trim() === '') {
+      throw new Error('Empty response from ESP32');
+    }
+    
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseError) {
+      throw new Error(`JSON parse error: ${parseError.message}`);
+    }
+    
+    // Validate data structure
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid data structure');
+    }
+    
+    if (typeof data.temperature === 'undefined' || 
+        typeof data.humidity === 'undefined' || 
+        typeof data.gas === 'undefined') {
+      throw new Error(`Missing fields in response. Got: ${JSON.stringify(data)}`);
+    }
+    
+    // Parse and validate values
+    const temp = parseFloat(data.temperature);
+    const hum = parseFloat(data.humidity);
+    const gas = parseInt(data.gas);
+    
+    if (isNaN(temp) || isNaN(hum) || isNaN(gas)) {
+      throw new Error('Invalid numeric values in response');
+    }
+    
+    // Update displays
+    temperatureEl.textContent = temp.toFixed(1);
+    humidityEl.textContent = hum.toFixed(1);
+    gasEl.textContent = gas;
+    
+    addDebug(`✅ SUCCESS: ${temp}°C, ${hum}%, ${gas}ppm`);
+    
+    // Update air quality
+    if (gas > 3500) {
+      airQualityBadge.className = 'air-quality-badge air-poor';
+      airQualityBadge.textContent = '⚠️ Air Quality: Poor';
+    } else if (gas > 1800) {
+      airQualityBadge.className = 'air-quality-badge air-moderate';
+      airQualityBadge.textContent = '🟠 Air Quality: Moderate';
+    } else if (gas > 0) {
+      airQualityBadge.className = 'air-quality-badge air-good';
+      airQualityBadge.textContent = '✅ Air Quality: Good';
+    }
+    
+    sensorState.textContent = 'LIVE';
+    
+    if (!isControlOnline) {
+      isControlOnline = true;
+      controlState.textContent = 'CONNECTED';
+    }
+    
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      addDebug(`❌ Timeout: ESP32 not responding`);
+    } else {
+      addDebug(`❌ Error: ${err.message}`);
+    }
+    
+    temperatureEl.textContent = '--';
+    humidityEl.textContent = '--';
+    gasEl.textContent = '--';
+    airQualityBadge.className = 'air-quality-badge air-good';
+    airQualityBadge.textContent = '— No Data Available';
+    
+    sensorState.textContent = 'OFFLINE';
+    isControlOnline = false;
+    controlState.textContent = 'OFFLINE';
+  }
+}
+
+async function testSensorAPI() {
+  addDebug('🧪 Manual test initiated...');
+  await fetchSensors();
+}
+
+// Start auto-fetch
+sensorFetchInterval = setInterval(fetchSensors, 2000);
+
+/* ============================================
+   CONNECTION TEST
+   ============================================ */
+async function testConnection() {
+  try {
+    addDebug(`🔍 Testing: ${ESP32_CTRL}/sensors`);
+    const res = await fetch(`${ESP32_CTRL}/sensors`, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-cache'
+    });
+    
+    if (res.ok) {
+      controlState.textContent = 'CONNECTED';
+      isControlOnline = true;
+      addDebug('✅ Connection test PASSED');
+    } else {
+      throw new Error(`HTTP ${res.status}`);
+    }
+  } catch (err) {
+    controlState.textContent = 'OFFLINE';
+    isControlOnline = false;
+    addDebug(`❌ Connection test FAILED: ${err.message}`);
+  }
+}
+
+setTimeout(testConnection, 1000);
+
+/* ============================================
+   MOTOR CONTROL
+   ============================================ */
+async function sendCommand(cmd) {
+  try {
+    const url = `${ESP32_CTRL}/control?move=${cmd}&speed=${speed}`;
+    await fetch(url, { 
+      method: 'GET', 
+      mode: 'cors',
+      cache: 'no-cache'
+    });
+  } catch (err) {
+    addDebug(`❌ Command '${cmd}' failed: ${err.message}`);
+  }
+}
+
+function startHold(cmd) {
+  sendCommand(cmd);
+  if (holdInterval) clearInterval(holdInterval);
+  holdInterval = setInterval(() => sendCommand(cmd), 150);
+}
+
+function stopHold() {
+  if (holdInterval) clearInterval(holdInterval);
+  sendCommand('stop');
+}
+
+/* ============================================
+   BUTTON EVENTS
+   ============================================ */
+btnF.addEventListener('mousedown', () => startHold('forward'));
+btnF.addEventListener('mouseup', stopHold);
+btnF.addEventListener('mouseleave', stopHold);
+
+btnB.addEventListener('mousedown', () => startHold('backward'));
+btnB.addEventListener('mouseup', stopHold);
+btnB.addEventListener('mouseleave', stopHold);
+
+btnL.addEventListener('mousedown', () => startHold('right'));
+btnL.addEventListener('mouseup', stopHold);
+btnL.addEventListener('mouseleave', stopHold);
+
+btnR.addEventListener('mousedown', () => startHold('left'));
+btnR.addEventListener('mouseup', stopHold);
+btnR.addEventListener('mouseleave', stopHold);
+
+btnF.addEventListener('touchstart', (e) => { e.preventDefault(); startHold('forward'); });
+btnF.addEventListener('touchend', (e) => { e.preventDefault(); stopHold(); });
+
+btnB.addEventListener('touchstart', (e) => { e.preventDefault(); startHold('backward'); });
+btnB.addEventListener('touchend', (e) => { e.preventDefault(); stopHold(); });
+
+btnL.addEventListener('touchstart', (e) => { e.preventDefault(); startHold('right'); });
+btnL.addEventListener('touchend', (e) => { e.preventDefault(); stopHold(); });
+
+btnR.addEventListener('touchstart', (e) => { e.preventDefault(); startHold('left'); });
+btnR.addEventListener('touchend', (e) => { e.preventDefault(); stopHold(); });
+
+btnStop.addEventListener('click', stopHold);
+
+document.getElementById('emergency').addEventListener('click', () => {
+  stopHold();
+  addDebug('🚨 EMERGENCY STOP!');
+  alert('🚨 EMERGENCY STOP - All motors stopped!');
+});
+
+/* ============================================
+   SPEED CONTROL
+   ============================================ */
+speedSlider.oninput = (e) => {
+  speed = e.target.value;
+  speedVal.textContent = speed;
+};
+
+/* ============================================
+   MOBILE OPTIMIZATION
+   ============================================ */
+document.addEventListener('touchmove', (e) => {
+  if (e.target.classList.contains('ctrl-btn')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// Initial fetch
+setTimeout(fetchSensors, 1000);
+
+addDebug('🚀 Dashboard loaded. Update IPs and test connection.');
+
+
+/* ============================================
+   FACE DETECTION INTEGRATION (FIXED)
+   ============================================ */
+async function updateFaceDetection() {
+  try {
+    const res = await fetch('sentinel_data/status.json?_=' + Date.now(), {
+      method: 'GET',
+      cache: 'no-store'
+    });
+    
+    if (!res.ok) throw new Error('Status file not found');
+    
+    const data = await res.json();
+    
+    const statusEl = document.getElementById('faceStatus');
+    const alertEl = document.getElementById('faceAlert');
+    const countEl = document.getElementById('knownCount');
+    const lastEl = document.getElementById('lastDetection');
+    
+    // Update known faces count (ONLY currently detected)
+    countEl.textContent = data.currentKnownFaces || 0;
+    
+    // Show alert if unknown faces detected
+    if (data.alert || data.currentUnknownFaces > 0) {
+      statusEl.textContent = `⚠️ ${data.currentUnknownFaces} UNKNOWN FACE(S)`;
+      statusEl.style.background = 'linear-gradient(135deg,#ff3b30,#ff6b6b)';
+      alertEl.style.display = 'block';
+      alertEl.textContent = `⚠️ ${data.currentUnknownFaces} UNKNOWN FACE(S) DETECTED`;
+      
+      // Play alert sound
+      try {
+        const beep = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=');
+        beep.play();
+      } catch(e) {}
+      
+      addDebug(`🚨 ${data.currentUnknownFaces} UNKNOWN FACE(S) DETECTED!`);
+    } else {
+      // Show known faces or idle status
+      if (data.currentKnownFaces > 0) {
+        const names = data.knownFaceNames.join(', ');
+        statusEl.textContent = `✅ Monitoring: ${names}`;
+        statusEl.style.background = 'linear-gradient(135deg,#10b981,#059669)';
+      } else {
+        statusEl.textContent = '✅ SYSTEM ACTIVE';
+        statusEl.style.background = 'linear-gradient(135deg,#667eea,#764ba2)';
+      }
+      alertEl.style.display = 'none';
+    }
+    
+    lastEl.innerHTML = `
+      <div>Last detection: ${data.timestamp || '--:--:--'}</div>
+      <div style="margin-top:4px;">
+        <span style="color:#10b981;">✓ Known: ${data.currentKnownFaces}</span> | 
+        <span style="color:#ef4444;">⚠ Unknown: ${data.currentUnknownFaces || 0}</span>
+      </div>
+      <div style="margin-top:4px;font-size:0.75rem;color:#9ca3af;">
+        Database: ${data.totalKnownInDatabase || 0} faces
+      </div>
+    `;
+    
+  } catch (err) {
+    const statusEl = document.getElementById('faceStatus');
+    const alertEl = document.getElementById('faceAlert');
+    statusEl.textContent = 'OFFLINE - Check MATLAB';
+    statusEl.style.background = '#6b7280';
+    alertEl.style.display = 'none';
+  }
+}
+
+// Start monitoring
+setInterval(updateFaceDetection, 1000);
+setTimeout(updateFaceDetection, 2000);
+
+</script>
+</body>
+</html>
